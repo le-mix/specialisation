@@ -185,19 +185,19 @@ if __name__ == "__main__":
     print("Majorana monomials in S1.S2:", len(H), "  by degree:", dict(sorted(deg.items())))
 
     # 3. T-Z, computed directly from its own covariance matrix
-    e_T = bond_energy(H, covariance_TZ(sp.Matrix([[a, b], [c, d]])))
+    e_TZ = bond_energy(H, covariance_TZ(sp.Matrix([[a, b], [c, d]])))
     print("\nT-Z, computed directly:")
-    print("   e(a,b,c,d) =", sp.factor(e_T))
+    print("   e(a,b,c,d) =", sp.factor(e_TZ))
     e_old = sp.Rational(3, 16) * (a*b**2*d - a*b**2 + a*c**2*d + a*c**2 - b**3*c - b*c**3
                                   + b**2*d - c**2*d - b**2 - c**2)
-    print("   agrees with the closed form derived earlier:", sp.expand(e_T - e_old) == 0)
+    print("   agrees with the closed form derived earlier:", sp.expand(e_TZ - e_old) == 0)
 
     # 4. T-iY, computed directly from its own covariance matrix
-    e_Tp = bond_energy(H, covariance_TiY(r, q))
+    e_TiY = bond_energy(H, covariance_TiY(r, q))
     print("\nT-iY, computed directly:")
-    print("   e(r,q) =", sp.factor(e_Tp))
+    print("   e(r,q) =", sp.factor(e_TiY))
     print("   agrees with (3/8)(q^2+r^2)(q^2-r^2-1):",
-          sp.expand(e_Tp - sp.Rational(3, 8) * (q**2 + r**2) * (q**2 - r**2 - 1)) == 0)
+          sp.expand(e_TiY - sp.Rational(3, 8) * (q**2 + r**2) * (q**2 - r**2 - 1)) == 0)
 
     # 5. the general six-number result (both classes are special cases of it)
     p = sp.Matrix([[a, b], [c, d]])
@@ -211,13 +211,13 @@ if __name__ == "__main__":
     # 6. the three direct computations must be consistent with each other
     print("\nConsistency:")
     print("   general result at x=y=0 equals the direct T-Z result:",
-          sp.expand(e.subs({x: 0, y: 0}) - e_T) == 0)
+          sp.expand(e.subs({x: 0, y: 0}) - e_TZ) == 0)
     print("   general result at (a=d=0, b=-q, c=q, x=r, y=-r) equals the direct T' result:",
-          sp.expand(e.subs({a: 0, d: 0, b: -q, c: q, x: r, y: -r}) - e_Tp) == 0)
+          sp.expand(e.subs({a: 0, d: 0, b: -q, c: q, x: r, y: -r}) - e_TiY) == 0)
 
     # 7. two-site checks with known answers
     print("\nTwo-site checks (the exact eigenvalues of S1.S2 are -3/4 and +1/4):")
-    print("   T-Z, b=c=1 (rest 0):              ", e_T.subs({a: 0, b: 1, c: 1, d: 0}))
-    print("   T-iY class, r=1, q=0:      ", e_Tp.subs({r: 1, q: 0}))
+    print("   T-Z, b=c=1 (rest 0):              ", e_TZ.subs({a: 0, b: 1, c: 1, d: 0}))
+    print("   T-iY class, r=1, q=0:      ", e_TiY.subs({r: 1, q: 0}))
     print("   invariance under rho<->eta on site 2 only:",
           sp.expand(e - e.subs({b: -x, x: -b, c: y, y: c, d: -d}, simultaneous=True)) == 0)
