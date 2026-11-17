@@ -203,10 +203,9 @@ if __name__ == "__main__":
     p = sp.Matrix([[a, b], [c, d]])
     e = bond_energy(H, covariance(p, sp.Matrix([[0, x], [-x, 0]]), sp.Matrix([[0, y], [-y, 0]])))
     print("\nGeneral state, e(a,b,c,d; x,y) =", sp.factor(e))
-    W = b**2 + c**2 - x**2 - y**2
     e_compact = sp.Rational(3, 16) * (-(b**2 + c**2 + x**2 + y**2) - (a - d) * (b**2 - c**2)
-                                      - (a + d) * (x**2 - y**2) + W * (a * d - b * c - x * y))
-    print("   agrees with the compact formula:", sp.expand(e - e_compact) == 0)
+                                      - (a + d) * (x**2 - y**2) + (b**2 + c**2 - x**2 - y**2) * (a * d - b * c - x * y))
+    print("   agrees with the formula:", sp.expand(e - e_compact) == 0)
 
     # 6. the three direct computations must be consistent with each other
     print("\nConsistency:")
