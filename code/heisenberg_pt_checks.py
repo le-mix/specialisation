@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Brute-force perturbation theory around the TZ Gaussian state of the 6-Majorana representation for the spin-1/2 Heisenberg ring
-    H = J sum_i S_i . S_{i+1}     (J = 1, periodic, N sites).
+Brute-force perturbation theory around the TZ Gaussian state of the 6-Majorana representation for the spin-1/2 J1-J2 Heisenberg ring
+    H = sum_i S_i . S_{i+1} + J2 sum_i S_i . S_{i+2}     (J1 = 1, periodic, N sites; J2 = 0 is the nearest-neighbour ring).
 
 Everything is done in the FULL Fock space (2^(3N) dimensions, no Wick / diagram shortcuts), so every number can be compared with exact
 diagonalisation and with heisenberg_diagrams.py, which computes the same series with Wick/Pfaffian diagrams.
 
 Reference.  heisenberg_gaussian_S1.py minimises <H> over TZ Gaussian states (one-site cell, time-reversal class "TZ"):
-    H0 = sum_{alpha=x,y,z} sum_i [ mu i rho^alpha_i eta^alpha_i + (tR+kappa) i rho^alpha_i eta^alpha_{i+1} + (tR-kappa) i rho^alpha_{i+1} eta^alpha_i ],
-with (mu, tR, kappa) the optimum and the seam coupling multiplied by (-1)^twist.  |0> is the (non-degenerate) ground state of H0, energy E0.
+    H0 = sum_{alpha=x,y,z} sum_i [ mu i rho^alpha_i eta^alpha_i
+           + sum_{r=1,2} ( (t_r+kappa_r) i rho^alpha_i eta^alpha_{i+r} + (t_r-kappa_r) i rho^alpha_{i+r} eta^alpha_i ) ],
+with (mu, t_r, kappa_r) the optimum and the coupling of every bond that crosses the seam multiplied by (-1)^twist.  |0> is the (non-degenerate)
+ground state of H0, energy E0.  (For J2 < J1 the optimum has t_2 = kappa_2 = 0: the reference is the nearest-neighbour one and J2 enters through V only.)
 
 Series.  H(xi) = H0 + xi V,  V = H - H0,  physical point xi = 1:  E(xi) = sum_n E_n xi^n  (Rayleigh-Schroedinger, intermediate normalisation):
     E_n = <0| V |psi_{n-1}>,     (H0 - E0) |psi_n> = - Q [ V |psi_{n-1}> - sum_{k=1}^{n-1} E_k |psi_{n-k}> ],     Q = 1 - |0><0|.
@@ -23,6 +25,7 @@ Requires numpy, scipy and heisenberg_gaussian_S1.py in the same directory.
 Usage:  python3 heisenberg_pt_checks.py                    # N = 3 4 5, both seam signs, orders up to 8
         python3 heisenberg_pt_checks.py 4 6 --order 6      # N = 6 has Fock dimension 262144 (about 10-30 s per seam sign)
         python3 heisenberg_pt_checks.py 5 --twist 0
+        python3 heisenberg_pt_checks.py 4 5 6 --J2 0.4     # J1-J2 ring
 """
 import argparse
 import os
@@ -65,27 +68,34 @@ def spin_6(g):
     return [0.5 * (Jr[a] + Je[a]) + 0.5 * Gam @ (Jr[a] - Je[a]) for a in range(3)]
 
 
-def ring_hamiltonian(S, N):
-    """sum over the N bonds (i, i+1 mod N) of S_i . S_{i+1}; S[i] = list of the three spin matrices of site i."""
+def ring_hamiltonian(S, N, J2=0.0):
+    """sum_i S_i . S_{i+1} + J2 sum_i S_i . S_{i+2} (indices mod N, i = 0..N-1); S[i] = list of the three spin matrices of site i."""
     H = None
-    for i in range(N):
-        j = (i + 1) % N
-        for a in range(3):
-            t = S[i][a] @ S[j][a]
-            H = t if H is None else H + t
+    for dist, Jd in ((1, 1.0), (2, J2)):
+        if Jd == 0.0:
+            continue
+        for i in range(N):
+            j = (i + dist) % N
+            for a in range(3):
+                t = Jd * (S[i][a] @ S[j][a])
+                H = t if H is None else H + t
     return H.tocsr()
 
 
 def mean_field_6(gam, N, mu, tR, kappa, twist):
-    """H0 = sum_{alpha,i} [mu i rho_i eta_i + (tR+kappa) i rho_i eta_{i+1} + (tR-kappa) i rho_{i+1} eta_i]; seam coupling x (-1)^twist."""
+    """H0 = sum_{alpha,i} [mu i rho_i eta_i + sum_r ((t_r+kappa_r) i rho_i eta_{i+r} + (t_r-kappa_r) i rho_{i+r} eta_i)]; every bond that crosses the
+       seam (i + r >= N) is multiplied by (-1)^twist.  tR, kappa: scalars (r = 1 only) or sequences (t_1, t_2), (kappa_1, kappa_2)."""
     sgn = 1.0 if twist == 0 else -1.0
+    tR, kappa = np.atleast_1d(np.asarray(tR, float)), np.atleast_1d(np.asarray(kappa, float))
     K = np.zeros((N, N))
     for i in range(N):
         K[i, i] += mu
-        j = (i + 1) % N
-        s = sgn if j == 0 else 1.0
-        K[i, j] += s * (tR + kappa)
-        K[j, i] += s * (tR - kappa)
+    for r in range(1, len(tR) + 1):
+        for i in range(N):
+            j = (i + r) % N
+            s = sgn if i + r >= N else 1.0
+            K[i, j] += s * (tR[r - 1] + kappa[r - 1])
+            K[j, i] += s * (tR[r - 1] - kappa[r - 1])
     H = None
     for al in range(3):
         for i in range(N):
@@ -138,20 +148,20 @@ def rs_series(H0, V, psi0, E0, K):
     return Es
 
 
-def tz_series(N, twist, K, starts=12, seed=0, H=None, gam=None, check_xi=None):
+def tz_series(N, twist, K, starts=12, seed=0, H=None, gam=None, check_xi=None, J2=0.0):
     """Full-Fock-space series E_0..E_K about the TZ reference (seam sign (-1)^twist).  Returns a dict with the series, the reference
        parameters, the mean-field energy and (optionally) the exact lowest eigenvalue of H0 + check_xi V for comparison with the series."""
     if gam is None:
         gam = majoranas(3 * N)
     if H is None:
-        H = ring_hamiltonian([spin_6(gam[6 * i:6 * i + 6]) for i in range(N)], N)
-    out = hg.minimise(N, twist, starts=starts, seed=seed)
-    H0 = mean_field_6(gam, N, out["mu"], out["tR"], out["kappa"], twist)
+        H = ring_hamiltonian([spin_6(gam[6 * i:6 * i + 6]) for i in range(N)], N, J2)
+    out = hg.minimise(N, twist, starts=starts, seed=seed, J2=J2)
+    H0 = mean_field_6(gam, N, out["mu"], out["t"], out["kap"], twist)
     w, v = lowest_two(H0)
     psi0, E0 = v[:, 0], w[0]
     V = (H - H0).tocsr()
     Es = rs_series(H0, V, psi0, E0, K)
-    res = dict(E=Es, gap=w[1] - w[0], MF=np.vdot(psi0, H @ psi0).real, MF_minimiser=out["E"], params=(out["mu"], out["tR"], out["kappa"]))
+    res = dict(E=Es, gap=w[1] - w[0], MF=np.vdot(psi0, H @ psi0).real, MF_minimiser=out["E"], params=(out["mu"], out["t"], out["kap"]))
     if check_xi is not None:
         res["check"] = (lowest_eigenvalue((H0 + check_xi * V).tocsr()), sum(Es[k] * check_xi ** k for k in range(K + 1)))
     return res
@@ -170,17 +180,17 @@ def report(res, E_exact, xi=0.05):
         print(f"   order {n}: E_n = {Es[n]:+.8f}   partial sum = {S:.10f}   {err(S):+6.1f}% from exact")
 
 
-def run_tz(Ns, K, twists):
+def run_tz(Ns, K, twists, J2=0.0):
     for N in Ns:
         if not 3 <= N <= 6:
             raise SystemExit("N must be 3, 4, 5 or 6 (the Fock space has 2^(3N) dimensions)")
         t0 = time.time()
         gam = majoranas(3 * N)
-        H = ring_hamiltonian([spin_6(gam[6 * i:6 * i + 6]) for i in range(N)], N)
-        Eex = hg.exact_energy(N)
+        H = ring_hamiltonian([spin_6(gam[6 * i:6 * i + 6]) for i in range(N)], N, J2)
+        Eex = hg.exact_energy(N, 1.0, J2)
         for tw in twists:
-            res = tz_series(N, tw, K, H=H, gam=gam, check_xi=0.05)
-            print(f"\nN={N}, twist={tw} (dim {H.shape[0]}): gap(H0) = {res['gap']:.5f};  mean-field energy <H>_0 = {res['MF']:.10f} "
+            res = tz_series(N, tw, K, H=H, gam=gam, check_xi=0.05, J2=J2)
+            print(f"\nN={N}, J2={J2:g}, twist={tw} (dim {H.shape[0]}): gap(H0) = {res['gap']:.5f};  mean-field energy <H>_0 = {res['MF']:.10f} "
                   f"(minimiser: {res['MF_minimiser']:.10f});  exact ED = {Eex:.10f}")
             report(res, Eex)
             sys.stdout.flush()
@@ -192,5 +202,6 @@ if __name__ == "__main__":
     ap.add_argument("N", nargs="*", type=int, help="ring sizes, 3 <= N <= 6 (default 3 4 5)")
     ap.add_argument("--order", type=int, default=8, help="highest order in xi (default 8)")
     ap.add_argument("--twist", choices=["0", "1", "both"], default="both", help="seam sign of the reference, (-1)^twist (default both)")
+    ap.add_argument("--J2", type=float, default=0.0, help="next-nearest-neighbour coupling J2 (J1 = 1; default 0)")
     args = ap.parse_args()
-    run_tz(args.N or [3, 4, 5], args.order, (0, 1) if args.twist == "both" else (int(args.twist),))
+    run_tz(args.N or [3, 4, 5], args.order, (0, 1) if args.twist == "both" else (int(args.twist),), args.J2)
